@@ -1,0 +1,119 @@
+import tensorflow as tf
+
+from tensorflow.examples.tutorials.mnist import input_data
+
+"""Here we load the dataset"""
+mnist = input_data.read_data_sets("/tmp/data/", one_hot = True)
+
+"""Number of classes of the dataset, in this case is 10 because we have numbers
+from 0 to 9"""
+n_classes = 10
+batch_size = 128
+
+#PlaceHolders are used to inject data to any tensor in a computation graph. 
+#It exists solely to serve as the target of feeds. It is not initialized and contains no data.
+
+x = tf.placeholder('float', [None, 784])
+y = tf.placeholder('float')
+
+#The keep probability is going to be used for the dropout. 
+# Keep rate will do 0.6
+keep_rate = 0.6
+keep_prob = tf.placeholder(tf.float32)
+
+""" This is going to be used for creating the weights and the biases"""
+def weight_variable(shape):
+  initial = tf.truncated_normal(shape, stddev=0.1)
+  return tf.Variable(initial)
+
+def bias_variable(shape):
+  initial = tf.constant(0.1, shape=shape)
+  return tf.Variable(initial)
+  
+def conv2d(data, weights):
+   return tf.nn.conv2d(data, weights, strides=[1,1,1,1], padding='SAME') # We are not going to get the depth
+
+def maxpool2d(data):
+    """Here we are going to move two by two at a time size of the window movement of the window"""
+    return tf.nn.max_pool(data, ksize=[1,2,2,1],strides=[1,2,2,1], padding = 'SAME')
+    
+    
+#Then we are going to define the architecture of our CNN. It's going to have 2 convolutional layers, 
+#we are going to use a ReLU for the firing fuction and apply the poiling technique after each convolutional layer 
+#and then a fully conected layer which is going to give us the output. 
+#Also, we are going to use the dropout technique to prevent overfitting.
+
+#The first convolutional will compute 32 features for each 5x5 patch. Its weight tensor will have a shape of [5, 5, 1, 32]. 
+#The first two dimensions are the patch size, the next is the number of input channels, 
+#and the last is the number of output channels. We will also have a bias vector with a component for each output channel. 
+#The second layer will have 64 features for each 5x5 patch. Also the bias will be 64. Then, 
+#the fully connected layer will be get a patch of 7*7 and will have 1024 neurons. And finally, we have the final layer, 
+#which will go from 1024 neurons, to the number of classes.
+
+#To apply the layer, we first reshape x to a 4d tensor, with the second and third dimensions corresponding to image width and 
+#height, and the final dimension corresponding to the number of color channels.
+
+#Then, we apply the convolutional and the pooling operations to the first and second layers. 
+#Then, for the fully connected layer, we reshape the tensor from the pooling layer into a batch of vectors, 
+#multiply by a weight matrix, add a bias, and apply a ReLU.
+
+#Finally, we apply the dropout technique to prevent overfitting, and with a matmul operation we get the output.
+
+def convolutional_neural_network(data):
+
+    """Here we are going to create the weights and biases variables for generating our neural network"""
+
+    w_conv1 = weight_variable([5, 5, 1, 32])
+    b_conv1 = bias_variable([32])
+
+    w_conv2 = weight_variable([5, 5, 32, 64])
+    b_conv2 = bias_variable([64])
+
+    w_fc1 = weight_variable([7 * 7 * 64, 1024])
+    b_fc1 = bias_variable([1024])
+
+    w_fc2 = weight_variable([1024, n_classes])
+    b_fc2 = bias_variable([n_classes])
+
+    x_image = tf.reshape(data, shape=[-1, 28, 28, 1]) #Reshape the image
+
+    #First convolutional layer
+    h_conv1 = tf.nn.relu(conv2d(x_image,w_conv1 + b_conv1))
+    h_pool1 = maxpool2d(h_conv1)
+
+    #Second convolutional layer
+    h_conv2 = tf.nn.relu(conv2d(h_pool1,w_conv2 + b_conv2))
+    h_pool2 = maxpool2d(h_conv2)
+
+    #Final
+    h_pool2_flat = tf.reshape(h_pool2,[-1,7*7*64])
+
+    fc = tf.nn.relu(tf.matmul(h_pool2_flat, w_fc1 )+ b_fc1)
+
+    """The idea of dropout is for help us in a
+    bigger neural network, dropout is going to help fight
+    local minimuns"""
+
+    fc_dropout = tf.nn.dropout(fc, keep_rate) #Compute dropout
+    #Final layer with a softmax
+    y = tf.nn.softmax(tf.matmul(fc_dropout, w_fc2)+ b_fc2)
+
+    return y
+    
+  
+'''Here is the main where we are going to train the neural network'''
+sess = tf.InteractiveSession()
+#Firstly we get the prediction
+prediction = convolutional_neural_network(x)
+cross_entropy = tf.reduce_mean(-tf.reduce_sum(y * tf.log(prediction), reduction_indices=[1]))
+train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
+correct_prediction = tf.equal(tf.argmax(prediction,1), tf.argmax(y,1))
+accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+sess.run(tf.initialize_all_variables())
+for i in range(20): #Here you can do as much epochs as you want
+    batch = mnist.train.next_batch(50) #For your own data, you have to implement this function
+    if(i%5 == 0):
+        train_accuracy = accuracy.eval(feed_dict={x:batch[0], y: batch[1], keep_prob: 0.1})
+        print("step %d, training accuracy %g"%(i, train_accuracy))
+        train_step.run(feed_dict={x: batch[0], y: batch[1], keep_prob: 0.5})
+print("test accuracy %g"%accuracy.eval(feed_dict={x: mnist.test.images, y: mnist.test.labels, keep_prob: 1.0}))
